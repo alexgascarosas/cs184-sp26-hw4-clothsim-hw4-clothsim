@@ -49,3 +49,40 @@ damping
 - With high damping, cloth
   falls slowly and reaches its rest pose almost without any
   oscillation.
+
+==============================================================
+Part 3: Handling Collisions with Other Objects
+==============================================================
+
+Implementation summary
+----------------------
+- Sphere::collide:
+    delta = pm.position - origin.
+    Skip if ||delta||^2 >= radius^2 (point already outside).
+    Else dir = delta / ||delta||, tangent = origin + radius * dir.
+    correction = tangent - last_position.
+    pm.position = last_position + (1 - friction) * correction.
+- Plane::collide:
+    cur_side  = (position      - point) . normal.
+    prev_side = (last_position - point) . normal.
+    Skip if same sign (no crossing) or cur_side == 0.
+    tangent = position - cur_side * normal (project onto plane).
+    target  = tangent + sign(prev_side) * SURFACE_OFFSET * normal.
+    pm.position = last_position + (1 - friction) * (target - last_position).
+- Cloth::simulate: after Verlet, before Provot, every PointMass
+  is run through every CollisionObject's collide method.
+
+Sphere drape, final rest (scene/sphere.json)
+--------------------------------------------
+Default ks = 5000 N/m
+Cloth drapes smoothly over the sphere with moderate folds at the
+sides. Typical fabric look.
+
+Low ks = 500 N/m
+Springs barely resist stretch, so the cloth stretches a lot under
+gravity. Drape hangs much lower past the sphere, surface looks
+saggy.
+
+High ks = 50000 N/m
+Springs are very stiff, cloth barely stretches. Creases stay crisp instead of smoothing out.
+
