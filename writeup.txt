@@ -1,0 +1,51 @@
+==============================================================
+Part 1: Masses and Springs
+==============================================================
+
+Implementation summary
+----------------------
+- Built a num_width_points x num_height_points grid of PointMass
+  objects in row-major (x-axis) order.
+    * HORIZONTAL: position = (x, 1, z), spaced evenly in xz.
+    * VERTICAL:   position = (x, y, z) with z a small random
+      offset in [-1/1000, 1/1000] to break planar symmetry.
+- Top-left mass sits at (0, 0); bottom-right at (width, height)
+  in the varying plane.
+- Pinned indices from the scene JSON are loaded into an
+  unordered_set for O(1) lookup; matching masses get pinned=true.
+- After all masses are constructed (so pointers are stable),
+  springs are added with bounds checks at the grid edges:
+    * Structural: left and above.
+    * Shearing:  diagonal upper left and diagonal upper right.
+    * Bending:    two to the left and two to the above.
+
+==============================================================
+Part 2: Simulation via Numerical Integration
+==============================================================
+
+ks (spring constant)
+--------------------
+- Very low ks makes springs barely resist stretch.
+  Cloth sags much deeper and the Provot 10% cap visibly clamps 
+  long stretches each step and cloth looks rubbery / saggy.
+- Very high ks makes springs very stiff.
+  Cloth barely deforms, settles quickly with almost no sag,
+  looks more like a rigid sheet than fabric.
+
+density
+-------
+- When low density each mass is light, gravity force
+  is small relative to spring force. Cloth sags very little and
+  settles almost immediately, looks taut.
+- When high density masses are heavy, gravity
+  dominates spring force. Cloth sags deeply, oscillates more,
+  and Provot constraint kicks in often. Effectively the inverse
+  of raising ks.
+
+damping
+-------
+- With very low damping, cloth oscillates
+  for a long time, swinging back and forth before settling.
+- With high damping, cloth
+  falls slowly and reaches its rest pose almost without any
+  oscillation.

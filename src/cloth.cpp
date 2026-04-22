@@ -33,6 +33,66 @@ Cloth::~Cloth() {
 void Cloth::buildGrid() {
   // TODO (Part 1): Build a grid of masses and springs.
 
+  // Build a set for O(1) pinned lookup.
+  // pinned stores entries of the form [x, y] where x is the column index and y the row index.
+  unordered_set<int> pinned_set;
+  for (const vector<int> &p : pinned) {
+    int x = p[0];
+    int y = p[1];
+    pinned_set.insert(y * num_width_points + x);
+  }
+
+  // Create the grid of point masses in row-major order (x varies fastest).
+  point_masses.reserve(num_width_points * num_height_points);
+  for (int y = 0; y < num_height_points; y++) {
+    for (int x = 0; x < num_width_points; x++) {
+      double u = (double)x / (num_width_points - 1) * width;
+      double v = (double)y / (num_height_points - 1) * height;
+
+      Vector3D pos;
+      if (orientation == HORIZONTAL) {
+        pos = Vector3D(u, 1.0, v);
+      } else {
+        // VERTICAL: small random z offset in [-1/1000, 1/1000]
+        double z = ((double)rand() / RAND_MAX) * 2.0 / 1000.0 - 1.0 / 1000.0;
+        pos = Vector3D(u, v, z);
+      }
+
+      bool is_pinned = pinned_set.find(y * num_width_points + x) != pinned_set.end();
+      point_masses.emplace_back(pos, is_pinned);
+    }
+  }
+
+  // Create springs once all masses are in place (so pointers are stable).
+  for (int y = 0; y < num_height_points; y++) {
+    for (int x = 0; x < num_width_points; x++) {
+      PointMass *pm = &point_masses[y * num_width_points + x];
+
+      // Structural: left and above
+      if (x > 0) {
+        springs.emplace_back(pm, pm - 1, STRUCTURAL);
+      }
+      if (y > 0) {
+        springs.emplace_back(pm, pm - num_width_points, STRUCTURAL);
+      }
+
+      // Shearing: diagonal upper-left and diagonal upper-right
+      if (x > 0 && y > 0) {
+        springs.emplace_back(pm, pm - num_width_points - 1, SHEARING);
+      }
+      if (x < num_width_points - 1 && y > 0) {
+        springs.emplace_back(pm, pm - num_width_points + 1, SHEARING);
+      }
+
+      // Bending: two to the left and two above
+      if (x > 1) {
+        springs.emplace_back(pm, pm - 2, BENDING);
+      }
+      if (y > 1) {
+        springs.emplace_back(pm, pm - 2 * num_width_points, BENDING);
+      }
+    }
+  }
 }
 
 void Cloth::simulate(double frames_per_sec, double simulation_steps, ClothParameters *cp,
@@ -43,9 +103,50 @@ void Cloth::simulate(double frames_per_sec, double simulation_steps, ClothParame
 
   // TODO (Part 2): Compute total force acting on each point mass.
 
+  // External force: F_ext = m * sum(external_accelerations).
+  Vector3D total_external_acc(0);
+  for (const Vector3D &a : external_accelerations) {
+    total_external_acc += a;
+  }
+  Vector3D external_force = mass * total_external_acc;
+
+  for (PointMass &pm : point_masses) {
+    pm.forces = external_force;
+  }
+
+  // Spring correction forces (Hooke's law). Bending springs use a softer ks.
+  for (Spring &s : springs) {
+    if (s.spring_type == STRUCTURAL && !cp->enable_structural_constraints) continue;
+    if (s.spring_type == SHEARING   && !cp->enable_shearing_constraints)   continue;
+    if (s.spring_type == BENDING    && !cp->enable_bending_constraints)    continue;
+
+    double k = cp->ks;
+    if (s.spring_type == BENDING) k *= 0.2;
+
+    Vector3D delta = s.pm_a->position - s.pm_b->position;
+    double dist = delta.norm();
+    double f_mag = k * (dist - s.rest_length);
+
+    Vector3D dir = delta / dist;
+    Vector3D force_on_a = -f_mag * dir;
+    s.pm_a->forces += force_on_a;
+    s.pm_b->forces -= force_on_a;
+  }
 
   // TODO (Part 2): Use Verlet integration to compute new point mass positions
 
+  double damping_factor = 1.0 - cp->damping / 100.0;
+  double dt2 = delta_t * delta_t;
+
+  for (PointMass &pm : point_masses) {
+    if (pm.pinned) continue;
+    Vector3D acc = pm.forces / mass;
+    Vector3D new_pos = pm.position
+                     + damping_factor * (pm.position - pm.last_position)
+                     + acc * dt2;
+    pm.last_position = pm.position;
+    pm.position = new_pos;
+  }
 
   // TODO (Part 4): Handle self-collisions.
 
@@ -56,6 +157,28 @@ void Cloth::simulate(double frames_per_sec, double simulation_steps, ClothParame
   // TODO (Part 2): Constrain the changes to be such that the spring does not change
   // in length more than 10% per timestep [Provot 1995].
 
+  for (Spring &s : springs) {
+    Vector3D delta = s.pm_b->position - s.pm_a->position;
+    double dist = delta.norm();
+    double max_len = 1.1 * s.rest_length;
+    if (dist <= max_len) continue;
+
+    double overshoot = dist - max_len;
+    Vector3D dir = delta / dist;
+
+    bool a_pinned = s.pm_a->pinned;
+    bool b_pinned = s.pm_b->pinned;
+    if (a_pinned && b_pinned) continue;
+
+    if (a_pinned) {
+      s.pm_b->position -= overshoot * dir;
+    } else if (b_pinned) {
+      s.pm_a->position += overshoot * dir;
+    } else {
+      s.pm_a->position += 0.5 * overshoot * dir;
+      s.pm_b->position -= 0.5 * overshoot * dir;
+    }
+  }
 }
 
 void Cloth::build_spatial_map() {
