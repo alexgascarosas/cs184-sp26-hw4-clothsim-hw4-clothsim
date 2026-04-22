@@ -86,3 +86,49 @@ saggy.
 High ks = 50000 N/m
 Springs are very stiff, cloth barely stretches. Creases stay crisp instead of smoothing out.
 
+==============================================================
+Part 4: Handling Self-Collisions
+==============================================================
+
+Implementation summary
+----------------------
+- hash_position: partition space into boxes of size
+    w = 3 * width  / num_width_points,
+    h = 3 * height / num_height_points,
+    t = max(w, h).
+  Truncate position to its box index using fmod, then combine
+  bx, by, bz into one float with a 31-base polynomial hash
+  (bx*31 + by*31^2 + bz*31^3) so different boxes get different keys.
+- build_spatial_map: clear old buckets, push every PointMass*
+  into map[hash_position(pm.position)].
+- self_collide: look up own bucket, skip self, and for each
+  candidate within 2*thickness compute (2*thickness - dist) * dir
+  to push them apart. Average all corrections, divide by
+  simulation_steps to soften, add to pm.position only.
+- Cloth::simulate: after Verlet, build the spatial map once,
+  then call self_collide on every PointMass before primitive
+  collisions.
+
+
+ks variation
+------------
+Low ks (= 5):
+Springs are extremely soft, cloth offers almost no resistance to
+compression. Folds are tiny and noisy, pile looks
+wrinkled rather than layered.
+
+High ks (= 10000):
+Stiff cloth, fewer but much larger and smoother folds. Fold edges
+are crisp and the pile is taller because the fabric resists
+compressing into itself.
+
+density variation
+-----------------
+Low density (= 1):
+Light cloth with relatively strong springs. Falls slowly and folds
+into clean, regular cylindrical layers, similar to high ks.
+
+High density (= 100):
+Heavy cloth overpowers the springs. Slams into the plane and piles
+into a chaotic, crumpled mass with many small overlapping folds,
+similar to low ks.

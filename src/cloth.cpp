@@ -150,6 +150,10 @@ void Cloth::simulate(double frames_per_sec, double simulation_steps, ClothParame
 
   // TODO (Part 4): Handle self-collisions.
 
+  build_spatial_map();
+  for (PointMass &pm : point_masses) {
+    self_collide(pm, simulation_steps);
+  }
 
   // TODO (Part 3): Handle collisions with other primitives.
 
@@ -194,17 +198,59 @@ void Cloth::build_spatial_map() {
 
   // TODO (Part 4): Build a spatial map out of all of the point masses.
 
+  for (PointMass &pm : point_masses) {
+    float key = hash_position(pm.position);
+    auto it = map.find(key);
+    if (it == map.end()) {
+      auto *bucket = new vector<PointMass *>();
+      bucket->push_back(&pm);
+      map[key] = bucket;
+    } else {
+      it->second->push_back(&pm);
+    }
+  }
 }
 
 void Cloth::self_collide(PointMass &pm, double simulation_steps) {
   // TODO (Part 4): Handle self-collision for a given point mass.
 
+  float key = hash_position(pm.position);
+  auto it = map.find(key);
+  if (it == map.end()) return;
+
+  Vector3D total_correction(0);
+  int count = 0;
+  double min_dist = 2.0 * thickness;
+
+  for (PointMass *candidate : *(it->second)) {
+    if (candidate == &pm) continue;
+    Vector3D delta = pm.position - candidate->position;
+    double dist = delta.norm();
+    if (dist >= min_dist) continue;
+
+    Vector3D dir = (dist > 0) ? delta / dist : Vector3D(1, 0, 0);
+    total_correction += (min_dist - dist) * dir;
+    count++;
+  }
+
+  if (count == 0) return;
+
+  Vector3D avg = total_correction / (double)count;
+  pm.position += avg / simulation_steps;
 }
 
 float Cloth::hash_position(Vector3D pos) {
   // TODO (Part 4): Hash a 3D position into a unique float identifier that represents membership in some 3D box volume.
 
-  return 0.f; 
+  double w = 3.0 * width  / num_width_points;
+  double h = 3.0 * height / num_height_points;
+  double t = max(w, h);
+
+  double bx = (pos.x - fmod(pos.x, w)) / w;
+  double by = (pos.y - fmod(pos.y, h)) / h;
+  double bz = (pos.z - fmod(pos.z, t)) / t;
+
+  return (float)(bx * 31.0 + by * 31.0 * 31.0 + bz * 31.0 * 31.0 * 31.0);
 }
 
 ///////////////////////////////////////////////////////
