@@ -21,11 +21,18 @@ out vec4 v_tangent;
 
 float h(vec2 uv) {
   // You may want to use this helper function...
-  return 0.0;
+  //return 0.0;
+  return texture(u_texture_2, uv).r;
 }
 
 void main() {
   // YOUR CODE HERE
+  vec4 displaced_position = in_position;
+
+  displaced_position.xyz += normalize(in_normal.xyz)
+                          * h(in_uv)
+                          * u_height_scaling;
+
   
   // (Placeholder code. You will want to replace it.)
   v_position = u_model * in_position;
